@@ -1,3 +1,5 @@
+#pip install aiosnmp 
+
 import asyncio
 import aiosnmp
 

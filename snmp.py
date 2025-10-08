@@ -1,56 +1,63 @@
-#pip install aiosnmp 
-
 import asyncio
-import aiosnmp
+from puresnmp import Client, V2C, PyWrapper
+
+richo = {'contador':'1.3.6.1.2.1.43.10.2.1.4.1.1',
+         'toner_atual':'1.3.6.1.2.1.43.11.1.1.9.1.1',
+         'toner_full':'1.3.6.1.2.1.43.11.1.1.8.1.1',
+         'tempo_ligada':'1.3.6.1.2.1.1.3.0',
+         'N_S':'1.3.6.1.2.1.43.5.1.1.17.1',
+         'menssagem_painel':'1.3.6.1.2.1.43.18.1.1.8.1.1'}
 
 
-"""Função para obter apenas o valor do contador de páginas via SNMP."""
-
-async def contador(ip):
-    
-    oid_contador = '1.3.6.1.2.1.43.10.2.1.4.1.1'
-
-    try:
-        async with aiosnmp.Snmp(host=ip, port=161, community='public') as snmp:
-            results = await snmp.get(oid_contador)
-            for res in results:
-                print(f"Contador: {res.value}") 
-
-    except aiosnmp.exceptions.SnmpError as e:
-        print(f"Ocorreu um erro SNMP: {e}")
+canon= {
+    'contador': '1.3.6.1.2.1.43.10.2.1.4.1.1',
+    'toner_atual': '1.3.6.1.2.1.43.11.1.1.9.1.1',
+    'toner_full': '1.3.6.1.2.1.43.11.1.1.8.1.1',
+    'tempo_ligada': '1.3.6.1.2.1.1.3.0',
+    'N_S': '1.3.6.1.2.1.43.5.1.1.17.1',
+    'menssagem_painel': '1.3.6.1.2.1.43.16.5.1.2.1.1'
+}
 
 
-"""Função para obter o nível de toner em porcentagem via SNMP."""
-async def toner(ip):
-   
-    oid_toner_level = '1.3.6.1.2.1.43.11.1.1.9.1.1'  # nível atual
-    oid_toner_max = '1.3.6.1.2.1.43.11.1.1.8.1.1'    # capacidade máxima
+async def contador(ip,oid):
+   client = PyWrapper(Client(ip, V2C('public')))
+   output = await client.get(oid)
+   return output
 
-    try:
-        async with aiosnmp.Snmp(host=ip, port=161, community='public') as snmp:
-            # Obtém nível atual
-            results_level = await snmp.get(oid_toner_level)
-            toner_atual = None
-            for res in results_level:
-                toner_atual = res.value
+async def toner_pb(ip,toner_atual,toner_full):
+   client = PyWrapper(Client(ip, V2C('public')))    
+   output1 = await client.get(toner_atual)
+   output2 = await client.get(toner_full)
+   toner_percent = (output1 / output2) * 100
+   return toner_percent
 
-            # Obtém capacidade máxima
-            results_max = await snmp.get(oid_toner_max)
-            toner_max = None
-            for res in results_max:
-                toner_max = res.value
+async def tempo_ligada(ip,tempo_ligada):
+   client = PyWrapper(Client(ip, V2C('public')))
+   output = await client.get(tempo_ligada)
+   return output
+ 
+async def N_S(ip,N_S):
+   client = PyWrapper(Client(ip, V2C('public')))
+   output = await client.get(N_S)
+   output = output.decode('utf-8')
+   return output
 
-            if toner_atual is not None and toner_max is not None:
-                toner_percent = (toner_atual / toner_max) * 100
-                print(f"Nível de toner: {toner_percent:.2f}%")
-            else:
-                print("Não foi possível obter o nível de toner corretamente.")
-
-    except aiosnmp.exceptions.SnmpError as e:
-        print(f"Ocorreu um erro SNMP: {e}")
+async def menssagem_painel(ip,menssagem_painel):
+   client = PyWrapper(Client(ip, V2C('public')))
+   output = await client.get(menssagem_painel)
+   output = output.decode('utf-8')
+   return output
 
 
-ip='10.19.104.97'
+ip = '192.168.2.86'
 
-asyncio.run(contador(ip))
-asyncio.run(toner(ip))
+
+print(asyncio.run(contador(ip,richo['contador'])))
+
+print(asyncio.run(toner_pb(ip,richo['toner_atual'],richo['toner_full'])))
+
+print(asyncio.run(tempo_ligada(ip,richo['tempo_ligada'])))
+
+print(asyncio.run(menssagem_painel(ip,richo['menssagem_painel'])))
+
+print(asyncio.run(N_S(ip,richo['N_S'])))

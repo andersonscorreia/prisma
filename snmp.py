@@ -1,23 +1,7 @@
 import asyncio
 from puresnmp import Client, V2C, PyWrapper
 
-richo = {'contador':'1.3.6.1.2.1.43.10.2.1.4.1.1',
-         'toner_atual':'1.3.6.1.2.1.43.11.1.1.9.1.1',
-         'toner_full':'1.3.6.1.2.1.43.11.1.1.8.1.1',
-         'tempo_ligada':'1.3.6.1.2.1.1.3.0',
-         'N_S':'1.3.6.1.2.1.43.5.1.1.17.1',
-         'menssagem_painel':'1.3.6.1.2.1.43.18.1.1.8.1.1'}
-
-
-canon= {
-    'contador': '1.3.6.1.2.1.43.10.2.1.4.1.1',
-    'toner_atual': '1.3.6.1.2.1.43.11.1.1.9.1.1',
-    'toner_full': '1.3.6.1.2.1.43.11.1.1.8.1.1',
-    'tempo_ligada': '1.3.6.1.2.1.1.3.0',
-    'N_S': '1.3.6.1.2.1.43.5.1.1.17.1',
-    'menssagem_painel': '1.3.6.1.2.1.43.16.5.1.2.1.1'
-}
-
+from impressoras import *
 
 async def contador(ip,oid):
    client = PyWrapper(Client(ip, V2C('public')))
@@ -49,7 +33,9 @@ async def menssagem_painel(ip,menssagem_painel):
    return output
 
 
-ip = '192.168.2.86'
+ip = input('- Qual o ip da impressora: -\n ')
+
+impressora = input('- qual a marca da impressora - \n1 - canon \n2 - richo\n')
 
 
 print(asyncio.run(contador(ip,richo['contador'])))

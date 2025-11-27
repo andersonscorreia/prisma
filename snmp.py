@@ -1,6 +1,6 @@
 import asyncio
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from puresnmp import Client, V2C, PyWrapper
 
 from impressoras import *
@@ -40,6 +40,7 @@ async def menssagem_painel(ip, oid):
 
 # ---------- Coleta todos os dados em paralelo ---------- #
 def coleta_dados(ip, impressora):
+    hora_local = datetime.now(timezone.utc) - timedelta(hours=3) 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
@@ -56,7 +57,7 @@ def coleta_dados(ip, impressora):
 
     dados = {
         "device_ip": ip,
-        "timestamp_coleta": datetime.now(timezone.utc).isoformat(),
+        "timestamp_coleta": hora_local.strftime("%d/%m/%Y %H:%M:%S"),
         "contador": int(contador_val),
         "nivel_toner": round(toner_val, 2),
         "tempo_ligada": str(tempo_val),
@@ -82,18 +83,20 @@ def envia_api(dados, retries=3):
 '''
 # ---------- Main ---------- #
 def main():
-    ip = input("- Qual o IP da impressora: ")
-    marca = input("- Qual a marca da impressora - \n1 - canon\n2 - richo\n")
+   ip = input("- Qual o IP da impressora: ")
+   marca = input("- Qual a marca da impressora - \n1 - canon\n2 - richo\n3 - epson\n")
 
-    if marca == "1":
-        impressora = canon
-    elif marca == "2":
-        impressora = richo
-    else:
-        raise ValueError("Marca inválida")
+   if marca == "1":
+      impressora = canon
+   elif marca == "2":
+      impressora = richo
+   elif marca == "3":
+      impressora = epson
+   else:
+      raise ValueError("Marca inválida")
 
-    dados = coleta_dados(ip, impressora)
+   dados = coleta_dados(ip, impressora)
     #envia_api(dados)
-    print(dados)  
+   print(dados)  
 if __name__ == "__main__":
     main()

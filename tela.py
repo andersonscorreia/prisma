@@ -2,15 +2,13 @@ import customtkinter as ctk
 from tkinter import messagebox
 import json
 import os
-
+from PIL import Image
 from snmp import coleta_dados, canon, richo, epson_color
-
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
 ARQUIVO_IMPRESSORAS = "impressoras.json"
-
 
 # ============================================================
 # Funções auxiliares
@@ -22,11 +20,9 @@ def carregar_impressoras():
             return json.load(f)
     return []
 
-
 def salvar_impressoras(lista):
     with open(ARQUIVO_IMPRESSORAS, "w") as f:
         json.dump(lista, f, indent=4)
-
 
 # ============================================================
 # Barra visual de TONER / MANUTENÇÃO
@@ -35,7 +31,6 @@ def salvar_impressoras(lista):
 class TonerBar(ctk.CTkFrame):
     def __init__(self, master, cor_nome, nivel):
         super().__init__(master, fg_color="transparent")
-
         cores = {
             "bk": "#000000",
             "c":  "#0095FF",
@@ -44,14 +39,8 @@ class TonerBar(ctk.CTkFrame):
             "🛠️": "#FF8800"
         }
 
-        # Nome da cor
-        ctk.CTkLabel(
-            self, 
-            text=f"{cor_nome.upper()}:", 
-            width=60
-        ).pack(side="left", padx=5)
+        ctk.CTkLabel(self, text=f"{cor_nome.upper()}:", width=60).pack(side="left", padx=5)
 
-        # Barra
         barra = ctk.CTkProgressBar(self, width=155, height=10, corner_radius=5)
         barra.pack(side="left", padx=5)
 
@@ -59,29 +48,18 @@ class TonerBar(ctk.CTkFrame):
             valor = float(nivel) / 100
         except:
             valor = 0
-
         barra.set(max(0, min(valor, 1)))
         barra.configure(progress_color=cores.get(cor_nome, "#AAAAAA"))
 
-        # Porcentagem grande e destacada
-        ctk.CTkLabel(
-            self,
-            text=f"{nivel}%",
-            width=55,
-            font=("Arial", 14, "bold"),
-            text_color="#FFFFFF"
-        ).pack(side="left", padx=(10, 0))
-
+        ctk.CTkLabel(self, text=f"{nivel}%", width=55, font=("Arial", 14, "bold"), text_color="#FFFFFF").pack(side="left", padx=(10,0))
 
 # ============================================================
 # CARD DA IMPRESSORA
 # ============================================================
 
-from PIL import Image
-
 class CardImpressora(ctk.CTkFrame):
     CARD_WIDTH = 400
-    CARD_HEIGHT = 320
+    CARD_HEIGHT = 400
 
     def __init__(self, master, app, impressora):
         super().__init__(
@@ -91,7 +69,6 @@ class CardImpressora(ctk.CTkFrame):
             corner_radius=15,
             fg_color="#1f1f1f"
         )
-
         self.grid_propagate(False)
         self.pack_propagate(False)
 
@@ -100,73 +77,100 @@ class CardImpressora(ctk.CTkFrame):
         self.ip = impressora["ip"]
         self.marca = impressora["marca"]
         self.nome = impressora["nome"]
+        self.dados = {}
+        self.expanded = False
 
         # -------------------------
         # IMAGEM PNG CENTRALIZADA
         # -------------------------
-        img_frame = ctk.CTkFrame(self, fg_color="transparent")
-        img_frame.pack(pady=(8, 4), fill="x")
-
+        self.img_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.img_frame.pack(pady=(8, 4), fill="x")
         try:
-            self.img = ctk.CTkImage(
-                light_image=Image.open("icons/impressora.png"),  # caminho correto
-                size=(70, 70)
-            )
-
-            ctk.CTkLabel(img_frame, image=self.img, text="").pack(anchor="center")
-
+            self.img = ctk.CTkImage(light_image=Image.open("icons/impressora.png"), size=(70, 70))
+            self.img_label = ctk.CTkLabel(self.img_frame, image=self.img, text="")
+            self.img_label.pack(anchor="center")
         except Exception as e:
             print("Erro ao carregar imagem:", e)
-            ctk.CTkLabel(
-                img_frame, text="🖨️", font=("Arial", 40)
-            ).pack(anchor="center")
+            self.img_label = ctk.CTkLabel(self.img_frame, text="🖨️", font=("Arial", 40))
+            self.img_label.pack(anchor="center")
 
         # Nome da impressora
-        ctk.CTkLabel(
-            self,
-            text=self.nome,
-            font=("Arial", 18, "bold")
-        ).pack(pady=(0, 4))
+        self.nome_label = ctk.CTkLabel(self, text=self.nome, font=("Arial", 18, "bold"))
+        self.nome_label.pack(pady=(0, 4))
+
+        # Número de série
+        try:
+            self.dados = coleta_dados(self.ip, self.get_dic())
+            serial = self.dados.get("numero_serie", "N/A")
+        except:
+            serial = "N/A"
+
+        self.serial_label = ctk.CTkLabel(self, text=f"Serial: {serial}", font=("Arial", 14))
+        self.serial_label.pack(pady=(0,4))
 
         # Área de toner
-        toner_area = ctk.CTkFrame(self, fg_color="#262626", corner_radius=12)
-        toner_area.pack(pady=5, padx=12, fill="x")
+        self.toner_area = ctk.CTkFrame(self, fg_color="#262626", corner_radius=12)
+        self.toner_area.pack(pady=5, padx=12, fill="x")
+        self.build_toner_area()
 
+        # Botão de mais detalhes
+        self.btn_detalhes = ctk.CTkButton(self, text="Mais Detalhes", command=self.mostrar_detalhes)
+        self.btn_detalhes.pack(pady=5)
+
+        # Frame para detalhes
+        self.detalhes_frame = ctk.CTkFrame(self, fg_color="#1f1f1f")
+        self.detalhes_frame.pack(fill="both", expand=True, padx=8, pady=5)
+        self.detalhes_frame.pack_forget()
+
+    def build_toner_area(self):
+        for w in self.toner_area.winfo_children():
+            w.destroy()
         try:
-            dados = coleta_dados(self.ip, self.get_dic())
-            toners = dados.get("toner", {})
-
+            toners = self.dados.get("toner", {})
             if not toners:
-                ctk.CTkLabel(toner_area, text="Sem dados SNMP", text_color="red").pack()
+                ctk.CTkLabel(self.toner_area, text="Sem dados SNMP", text_color="red").pack()
             else:
-                ordem = ["bk", "c", "m", "y"]
+                ordem = ["bk","c","m","y"]
                 for cor in ordem:
                     if cor in toners:
-                        TonerBar(toner_area, cor, toners[cor]).pack(
-                            anchor="w", pady=2, padx=8
-                        )
-
-                # Caixa de manutenção
-                manut = (
-                    dados.get("manutencao")
-                    or toners.get("manutencao")
-                    or toners.get("maintenance")
-                )
-
+                        TonerBar(self.toner_area, cor, toners[cor]).pack(anchor="w", pady=2, padx=8)
+                manut = self.dados.get("manutencao") or toners.get("manutencao") or toners.get("maintenance")
                 if manut is not None:
-                    TonerBar(toner_area, "🛠️", manut).pack(
-                        anchor="w", pady=2, padx=8
-                    )
-
+                    TonerBar(self.toner_area, "🛠️", manut).pack(anchor="w", pady=2, padx=8)
         except Exception as e:
-            print("Erro SNMP:", e)
-            ctk.CTkLabel(
-                toner_area, text="Falha na coleta SNMP", text_color="red"
-            ).pack()
+            ctk.CTkLabel(self.toner_area, text="Falha na coleta SNMP", text_color="red").pack()
 
-    # -------------------------
-    # RETORNA O DICIONÁRIO SNMP CORRETO
-    # -------------------------
+    def mostrar_detalhes(self):
+        if self.expanded:
+            self.detalhes_frame.pack_forget()
+            self.btn_detalhes.configure(text="Mais Detalhes")
+            self.expanded = False
+            self.toner_area.pack(pady=5, padx=12, fill="x")
+            self.serial_label.pack(pady=(0,4))
+        else:
+            for w in self.detalhes_frame.winfo_children():
+                w.destroy()
+
+            self.toner_area.pack_forget()
+            self.serial_label.pack_forget()
+
+            for chave, valor in self.dados.items():
+                if chave == "toner":
+                    continue
+                ctk.CTkLabel(self.detalhes_frame, text=f"{chave.replace('_',' ').title()}: {valor}", font=("Arial", 14)).pack(anchor="w", pady=2)
+
+            toners = self.dados.get("toner", {})
+            if toners:
+                ctk.CTkLabel(self.detalhes_frame, text="Toners / Manutenção:", font=("Arial", 16, "bold")).pack(anchor="w", pady=(10,3))
+                for cor in ["bk","c","m","y","maintenance","manutencao"]:
+                    if cor in toners:
+                        TonerBar(self.detalhes_frame, cor, toners[cor]).pack(anchor="w", pady=2, padx=8)
+
+            ctk.CTkButton(self.detalhes_frame, text="Voltar", command=self.mostrar_detalhes).pack(pady=10)
+            self.detalhes_frame.pack(fill="both", expand=True)
+            self.btn_detalhes.configure(text="Esconder Detalhes")
+            self.expanded = True
+
     def get_dic(self):
         m = self.marca.lower()
         if m == "canon":
@@ -174,29 +178,20 @@ class CardImpressora(ctk.CTkFrame):
         if m == "richo":
             return richo
         return epson_color
+
 # ============================================================
 # HOME
 # ============================================================
 
 class FrameHome(ctk.CTkFrame):
-
     def __init__(self, app, parent):
         super().__init__(parent)
         self.app = app
 
         topo = ctk.CTkFrame(self, fg_color="transparent")
-        topo.pack(fill="x", pady=(10, 5))
-
+        topo.pack(fill="x", pady=(10,5))
         ctk.CTkLabel(topo, text="Impressoras", font=("Arial", 25, "bold")).pack(side="left", padx=20)
-
-        # BOTÃO ATUALIZAR TUDO
-        ctk.CTkButton(
-            topo,
-            text="🔄 Atualizar Tudo",
-            width=150,
-            fg_color="#2a80ff",
-            command=self.atualizar_lista
-        ).pack(side="right", padx=20)
+        ctk.CTkButton(topo, text="🔄 Atualizar Tudo", width=150, fg_color="#2a80ff", command=self.atualizar_lista).pack(side="right", padx=20)
 
         self.scroll = ctk.CTkScrollableFrame(self, width=900, height=420)
         self.scroll.pack(pady=10)
@@ -204,12 +199,10 @@ class FrameHome(ctk.CTkFrame):
     def atualizar_lista(self):
         for w in self.scroll.winfo_children():
             w.destroy()
-
         colunas = 3
         for i, imp in enumerate(self.app.impressoras):
             card = CardImpressora(self.scroll, self.app, imp)
             card.grid(row=i // colunas, column=i % colunas, padx=15, pady=15)
-
 
 # ============================================================
 # CADASTRO
@@ -221,14 +214,11 @@ class FrameCadastro(ctk.CTkFrame):
         self.app = app
 
         ctk.CTkLabel(self, text="Cadastrar Impressora", font=("Arial", 22, "bold")).pack(pady=20)
-
         self.entry_nome = ctk.CTkEntry(self, width=300, placeholder_text="Nome (ex: Recepção)")
         self.entry_nome.pack(pady=10)
-
         self.entry_ip = ctk.CTkEntry(self, width=300, placeholder_text="IP da impressora")
         self.entry_ip.pack(pady=10)
-
-        self.combo_marca = ctk.CTkComboBox(self, values=["Canon", "Richo", "Epson Color"], width=300)
+        self.combo_marca = ctk.CTkComboBox(self, values=["Canon","Richo","Epson Color"], width=300)
         self.combo_marca.pack(pady=10)
 
         ctk.CTkButton(self, text="Testar Conexão", command=self.testar).pack(pady=10)
@@ -254,56 +244,40 @@ class FrameCadastro(ctk.CTkFrame):
         nome = self.entry_nome.get().strip()
         ip = self.entry_ip.get().strip()
         marca = self.combo_marca.get()
-
         if not nome or not ip:
             messagebox.showerror("Erro", "Preencha todos os dados")
             return
-
-        self.app.impressoras.append({
-            "nome": nome,
-            "ip": ip,
-            "marca": marca
-        })
-
+        self.app.impressoras.append({"nome": nome, "ip": ip, "marca": marca})
         salvar_impressoras(self.app.impressoras)
-
         messagebox.showinfo("OK", "Impressora cadastrada!")
         self.entry_nome.delete(0, "end")
         self.entry_ip.delete(0, "end")
-
 
 # ============================================================
 # APLICATIVO PRINCIPAL
 # ============================================================
 
 class PrinterApp(ctk.CTk):
-
     def __init__(self):
         super().__init__()
         self.title("Monitor SNMP - Impressoras")
         self.geometry("1080x650")
-
         self.sidebar_aberta = True
         self.impressoras = carregar_impressoras()
 
         self.sidebar = ctk.CTkFrame(self, width=180, corner_radius=0)
         self.sidebar.pack(side="left", fill="y")
-
         self.btn_menu = ctk.CTkButton(self.sidebar, text="☰", width=40, command=self.toggle_sidebar)
         self.btn_menu.pack(pady=10)
-
         self.btn_home = ctk.CTkButton(self.sidebar, text="📄 Impressoras", command=self.mostrar_home)
         self.btn_home.pack(pady=10, fill="x")
-
         self.btn_cad = ctk.CTkButton(self.sidebar, text="➕ Cadastrar", command=self.mostrar_cadastro)
         self.btn_cad.pack(pady=10, fill="x")
 
         self.container = ctk.CTkFrame(self)
         self.container.pack(side="right", fill="both", expand=True)
-
         self.frame_home = FrameHome(self, self.container)
         self.frame_cadastro = FrameCadastro(self, self.container)
-
         self.mostrar_home()
 
     def toggle_sidebar(self):
@@ -315,7 +289,6 @@ class PrinterApp(ctk.CTk):
             self.sidebar.configure(width=180)
             self.btn_home.pack(pady=10, fill="x")
             self.btn_cad.pack(pady=10, fill="x")
-
         self.sidebar_aberta = not self.sidebar_aberta
 
     def mostrar_home(self):
@@ -326,7 +299,6 @@ class PrinterApp(ctk.CTk):
     def mostrar_cadastro(self):
         self.frame_home.pack_forget()
         self.frame_cadastro.pack(fill="both", expand=True)
-
 
 # ============================================================
 # MAIN

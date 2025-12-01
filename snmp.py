@@ -1,71 +1,112 @@
 import asyncio
-import requests
 from datetime import datetime, timezone, timedelta
 from puresnmp import Client, V2C, PyWrapper
-
+from puresnmp.exc import NoSuchOID
 from impressoras import *
 
-'''
-API_URL = "https://seu-servidor.com/api/impressoras"  # troque para sua API
-API_KEY = "SUA_API_KEY_AQUI"
 
-'''
+# =====================================================
+# FUNÇÃO SNMP SEGURO
+# =====================================================
 
-
-async def contador(ip, oid):
+async def snmp_safe_get(ip, oid, decode=False):
+    """
+    Tenta pegar um OID. Se der erro, retorna "N/A".
+    """
     client = PyWrapper(Client(ip, V2C("public")))
-    output = await client.get(oid)
-    return output
+    try:
+        value = await client.get(oid)
+        if decode and isinstance(value, bytes):
+            return value.decode("utf-8", errors="ignore")
+        return value
+    except NoSuchOID:
+        return "N/A"
+    except Exception:
+        return "N/A"
 
-async def toner_pb(ip, toner_atual, toner_full):
-    client = PyWrapper(Client(ip, V2C("public")))
-    output1 = await client.get(toner_atual)
-    output2 = await client.get(toner_full)
-    return (output1 / output2) * 100
 
-async def tempo_ligada(ip, oid):
-    client = PyWrapper(Client(ip, V2C("public")))
-    output = await client.get(oid)
-    return output
+# =====================================================
+# FUNÇÕES ESPECÍFICAS
+# =====================================================
 
-async def N_S(ip, oid):
-    client = PyWrapper(Client(ip, V2C("public")))
-    output = await client.get(oid)
-    return output.decode("utf-8")
+async def toner_pb(ip, atual_oid, full_oid):
+    atual = await snmp_safe_get(ip, atual_oid)
+    full = await snmp_safe_get(ip, full_oid)
 
-async def menssagem_painel(ip, oid):
-    client = PyWrapper(Client(ip, V2C("public")))
-    output = await client.get(oid)
-    return output.decode("utf-8")
+    if isinstance(atual, str) or isinstance(full, str):
+        return "N/A"
 
-# ---------- Coleta todos os dados em paralelo ---------- #
+    if full == 0:
+        return "N/A"
+
+    return round((atual / full) * 100, 2)
+
+
+async def toner_colorido(ip, impressora):
+    cores = ["bk", "c", "m", "y"]
+    resultado = {}
+
+    for cor in cores:
+        atual = await snmp_safe_get(ip, impressora[f"toner_atual_{cor}"])
+        full = await snmp_safe_get(ip, impressora[f"toner_full_{cor}"])
+
+        if isinstance(atual, str) or isinstance(full, str) or full == 0:
+            resultado[cor] = "N/A"
+        else:
+            resultado[cor] = round((atual / full) * 100, 2)
+
+    # caixa de manutenção
+    atual_m = await snmp_safe_get(ip, impressora["caixa_manutenção_atual"])
+    full_m = await snmp_safe_get(ip, impressora["caixa_manutenção_full"])
+
+    if isinstance(atual_m, str) or isinstance(full_m, str) or full_m == 0:
+        resultado["manutencao"] = "N/A"
+    else:
+        resultado["manutencao"] = round((atual_m / full_m) * 100, 2)
+
+    return resultado
+
+
+# =====================================================
+# COLETA GERAL
+# =====================================================
+
 def coleta_dados(ip, impressora):
-    hora_local = datetime.now(timezone.utc) - timedelta(hours=3) 
+    hora_local = datetime.now(timezone.utc) - timedelta(hours=3)
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    tasks = [
-        contador(ip, impressora["contador"]),
-        toner_pb(ip, impressora["toner_atual"], impressora["toner_full"]),
-        tempo_ligada(ip, impressora["tempo_ligada"]),
-        N_S(ip, impressora["N_S"]),
-        menssagem_painel(ip, impressora["menssagem_painel"])
+    is_color = "toner_atual_bk" in impressora
+
+    tarefas = [
+        snmp_safe_get(ip, impressora["contador"]),
+        snmp_safe_get(ip, impressora["tempo_ligada"]),
+        snmp_safe_get(ip, impressora["N_S"], decode=True),
+        snmp_safe_get(ip, impressora["menssagem_painel"], decode=True)
     ]
 
-    resultado = loop.run_until_complete(asyncio.gather(*tasks))
-    contador_val, toner_val, tempo_val, serial_val, mensagem_val = resultado
+    if is_color:
+        tarefas.append(toner_colorido(ip, impressora))
+    else:
+        tarefas.append(toner_pb(ip, impressora["toner_atual"], impressora["toner_full"]))
 
-    dados = {
+    contador_val, tempo_val, serial_val, msg_val, toner_val = loop.run_until_complete(asyncio.gather(*tarefas))
+
+    if not is_color:
+        toner_val = {"bk": toner_val}
+
+    return {
         "device_ip": ip,
-        "timestamp_coleta": hora_local.strftime("%d/%m/%Y %H:%M:%S"),
-        "contador": int(contador_val),
-        "nivel_toner": round(toner_val, 2),
-        "tempo_ligada": str(tempo_val),
-        "mensagem_erro": mensagem_val,
-        "numero_serie": serial_val
+        "timestamp": hora_local.strftime("%d/%m/%Y %H:%M:%S"),
+        "contador": contador_val,
+        "tempo_ligada": tempo_val,
+        "numero_serie": serial_val,
+        "mensagem_erro": msg_val,
+        "toner": toner_val
     }
 
-    return dados
+
 '''
 # ---------- Envia JSON via requests ---------- #
 def envia_api(dados, retries=3):
@@ -81,22 +122,30 @@ def envia_api(dados, retries=3):
     print(f"[FALHA] Não foi possível enviar dados para {dados['device_ip']}")
     return False
 '''
-# ---------- Main ---------- #
+
+
+# =====================================================
+# MAIN
+# =====================================================
+
 def main():
-   ip = input("- Qual o IP da impressora: ")
-   marca = input("- Qual a marca da impressora - \n1 - canon\n2 - richo\n3 - epson\n")
+    ip = input("IP da impressora: ")
+    marca = input("1-Canon | 2-Ricoh | 3-Epson Color: ")
 
-   if marca == "1":
-      impressora = canon
-   elif marca == "2":
-      impressora = richo
-   elif marca == "3":
-      impressora = epson
-   else:
-      raise ValueError("Marca inválida")
+    if marca == "1":
+        impressora = canon
+    elif marca == "2":
+        impressora = richo
+    elif marca == "3":
+        impressora = epson_color
+    else:
+        print("Opção inválida!")
+        return
 
-   dados = coleta_dados(ip, impressora)
-    #envia_api(dados)
-   print(dados)  
+    dados = coleta_dados(ip, impressora)
+    print("\n=== RESULTADO FINAL ===")
+    print(dados)
+
+
 if __name__ == "__main__":
     main()

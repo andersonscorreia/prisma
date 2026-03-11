@@ -10,7 +10,8 @@ class PrinterController extends Controller
     public function index()
     {
         $printers = Printer::all();
-        return view('printers.index', compact('printers'));
+        $clients = \App\Models\Client::orderBy('name')->get();
+        return view('printers.index', compact('printers', 'clients'));
     }
 
     public function store(Request $request)
@@ -29,6 +30,19 @@ class PrinterController extends Controller
             ['serial_number' => $validated['serial_number']],
             $validated
         );
+
+        // Track counter history if it was provided
+        if (isset($validated['last_counter'])) {
+            $latestCounter = $printer->counters()->orderByDesc('recorded_at')->first();
+            
+            // Only insert a new history record if the counter changed (or it's the first time)
+            if (!$latestCounter || $latestCounter->counter !== $validated['last_counter']) {
+                $printer->counters()->create([
+                    'counter' => $validated['last_counter'],
+                    'recorded_at' => now(),
+                ]);
+            }
+        }
 
         return response()->json([
             'message' => 'Printer data saved successfully',
@@ -76,8 +90,37 @@ class PrinterController extends Controller
         $printer->save();
 
         return response()->json([
-            'message' => 'Config updated successfully',
-            'printer' => $printer
+            'message' => 'Configuration updated successfully'
         ]);
+    }
+
+    public function assignClient(Request $request, Printer $printer)
+    {
+        $validated = $request->validate([
+            'client_id' => 'required|exists:clients,id',
+        ]);
+
+        $newClientId = $validated['client_id'];
+
+        // Only do something if the client is actually changing
+        if ($printer->client_id != $newClientId) {
+            
+            // 1. Close the current active location (if any)
+            $activeLocation = $printer->locations()->whereNull('removed_at')->first();
+            if ($activeLocation) {
+                $activeLocation->update(['removed_at' => now()]);
+            }
+
+            // 2. Open a new location for the new client
+            $printer->locations()->create([
+                'client_id' => $newClientId,
+                'installed_at' => now(),
+            ]);
+
+            // 3. Update the printer's current client pointer
+            $printer->update(['client_id' => $newClientId]);
+        }
+
+        return redirect()->route('dashboard')->with('success', 'Cliente atribuído à impressora com sucesso!');
     }
 }

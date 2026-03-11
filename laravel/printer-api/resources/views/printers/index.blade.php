@@ -33,12 +33,17 @@
     <nav class="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
-                <div class="flex items-center">
+                <div class="flex items-center space-x-8">
                     <div class="flex-shrink-0 flex items-center">
                         <div class="w-10 h-10 bg-brand rounded flex items-center justify-center text-white font-bold text-xl mr-3">
                             GT
                         </div>
                         <span class="font-bold text-xl text-gray-900 tracking-tight">Monitoramento Técnico</span>
+                    </div>
+                    <div class="hidden md:flex space-x-4">
+                        <a href="{{ route('dashboard') }}" class="text-brand px-3 py-2 rounded-md text-sm font-medium transition-colors border-b-2 border-brand">Equipamentos</a>
+                        <a href="{{ route('clients.index') }}" class="text-gray-500 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium transition-colors">Clientes</a>
+                        <a href="{{ route('reports.index') }}" class="text-gray-500 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium transition-colors">Relatórios Mês</a>
                     </div>
                 </div>
                 <div class="flex items-center space-x-4">
@@ -125,7 +130,24 @@
                                     <span class="block text-gray-900 font-semibold font-mono">{{ $printer->ip_address ?: 'N/D' }}</span>
                                 </div>
                                 <div class="col-span-2 mt-1 pt-2 border-t border-gray-200">
-                                    <span class="block text-xs text-gray-500 font-medium mb-1">Contador Físico</span>
+                                    <span class="block text-xs text-gray-500 font-medium">Local / Cliente Atual</span>
+                                    <form action="{{ route('printers.assign_client', $printer->id) }}" method="POST" class="mt-1 flex items-center space-x-2">
+                                        @csrf
+                                        <select name="client_id" class="w-full text-sm block pl-2 pr-6 py-1 border-gray-300 focus:outline-none focus:ring-brand focus:border-brand rounded-md bg-white border">
+                                            <option value="">-- Sem cliente vinculado --</option>
+                                            @foreach($clients as $client)
+                                                <option value="{{ $client->id }}" {{ $printer->client_id == $client->id ? 'selected' : '' }}>
+                                                    {{ $client->name }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                        <button type="submit" class="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded text-white bg-gray-600 hover:bg-gray-700 focus:outline-none transition-colors shrink-0">
+                                            Salvar
+                                        </button>
+                                    </form>
+                                </div>
+                                <div class="col-span-2 mt-2 pt-2 border-t border-gray-200 flex justify-between items-center">
+                                    <span class="block text-xs text-gray-500 font-medium">Contador Físico Total</span>
                                     <div class="font-mono text-xl text-gray-900 font-bold tracking-tight">
                                         {{ number_format($printer->last_counter, 0, ',', '.') }}
                                     </div>

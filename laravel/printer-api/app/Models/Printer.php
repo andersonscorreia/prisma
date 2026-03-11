@@ -25,4 +25,19 @@ class Printer extends Model
             'force_update' => 'boolean',
         ];
     }
+
+    public function counters()
+    {
+        return $this->hasMany(PrinterCounter::class);
+    }
+
+    public function client()
+    {
+        return $this->belongsTo(Client::class);
+    }
+
+    public function locations()
+    {
+        return $this->hasMany(PrinterLocation::class);
+    }
 }
